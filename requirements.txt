@@ -1,3 +1,1 @@
-python-telegram-bot>=20.0
 requests
-yad2-scraper
