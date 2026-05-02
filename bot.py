@@ -2,7 +2,7 @@ import os
 import json
 import time
 import logging
-from yad2_scraper import Yad2Scraper
+import requests
 from telegram import Bot
 from telegram.error import TelegramError
 
@@ -15,7 +15,7 @@ if not TELEGRAM_TOKEN or not CHAT_ID:
 
 # ---------- ФИЛЬТРЫ ПОИСКА ----------
 SEARCH_FILTERS = {
-    "area": "center",          # תל אביב והמרכז
+    "area": "center",
     "max_price": 2_000_000,
     "min_rooms": 3,
     "max_rooms": 4,
@@ -26,6 +26,34 @@ SEARCH_FILTERS = {
 SENT_IDS_FILE = "sent_ids.json"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+def search_yad2():
+    """Поиск объявлений через публичный GET API Yad2."""
+    base_url = f"https://www.yad2.co.il/api/pre-load/getFeedIndex/realestate/{SEARCH_FILTERS['deal_type']}"
+    params = {
+        "area": SEARCH_FILTERS["area"],
+        "propertyType": SEARCH_FILTERS["property_type"],
+        "priceTo": SEARCH_FILTERS["max_price"],
+        "roomsFrom": SEARCH_FILTERS["min_rooms"],
+        "roomsTo": SEARCH_FILTERS["max_rooms"],
+        "pageSize": 25,
+        "page": 0,
+        "sort": "date_desc",
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+    }
+    try:
+        resp = requests.get(base_url, params=params, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        items = data.get("items") or data if isinstance(data, list) else []
+        logger.info(f"Найдено {len(items)} объявлений")
+        return items
+    except Exception as e:
+        logger.error(f"Ошибка при запросе к Yad2: {e}")
+        return []
 
 def load_sent_ids():
     try:
@@ -41,27 +69,21 @@ def save_sent_ids(ids_set):
 def main():
     sent_ids = load_sent_ids()
     bot = Bot(token=TELEGRAM_TOKEN)
-    scraper = Yad2Scraper()
-
-    logger.info("Запуск поиска объявлений...")
-    try:
-        listings = scraper.search(SEARCH_FILTERS)
-    except Exception as e:
-        logger.error(f"Ошибка при поиске: {e}")
-        return
-
+    items = search_yad2()
     new_found = 0
-    for listing in listings:
-        listing_id = str(listing.get("id"))
-        if listing_id in sent_ids:
+
+    for item in items:
+        listing_id = str(item.get("id", ""))
+        if not listing_id or listing_id in sent_ids:
             continue
 
-        title = listing.get("title", "Без названия")
-        price = listing.get("price", "—")
-        rooms = listing.get("rooms", "—")
-        address = listing.get("address", listing.get("city", {}).get("name", ""))
-        url = listing.get("url", "")
-        img = listing.get("image", "")
+        title = item.get("title", "Без названия")
+        price = item.get("price", "—")
+        rooms = item.get("rooms", "—")
+        address_obj = item.get("address", item.get("neighborhood", {}))
+        address = address_obj.get("name", "") if isinstance(address_obj, dict) else str(address_obj)
+        url = item.get("url", f"https://www.yad2.co.il/realestate/item/{listing_id}/")
+        image = (item.get("images") or [None])[0]
 
         message = (
             f"🏠 *{title}*\n"
@@ -73,8 +95,8 @@ def main():
 
         try:
             bot.send_message(chat_id=CHAT_ID, text=message, parse_mode="Markdown")
-            if img:
-                bot.send_photo(chat_id=CHAT_ID, photo=img)
+            if image:
+                bot.send_photo(chat_id=CHAT_ID, photo=image)
             sent_ids.add(listing_id)
             new_found += 1
             time.sleep(1)
