@@ -26,7 +26,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def search_yad2():
-    """Поиск объявлений через библиотеку yad2-scraper (метод get)."""
+    """Поиск объявлений через библиотеку yad2-scraper."""
     scraper = Yad2Scraper()
     base_url = f"https://www.yad2.co.il/api/pre-load/getFeedIndex/realestate/{DEAL_TYPE}"
     params = {
@@ -39,13 +39,9 @@ def search_yad2():
         "page": 0,
         "sort": "date_desc",
     }
-    headers = {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "application/json",
-    }
     try:
-        # Используем метод get библиотеки (он добавляет случайный User-Agent и обрабатывает ответ)
-        resp_data = scraper.get(base_url, params=params, headers=headers)
+        # Метод get сам настраивает заголовки (User-Agent, Referer и т.д.)
+        resp_data = scraper.get(base_url, params=params)
         if isinstance(resp_data, list):
             return resp_data
         elif isinstance(resp_data, dict) and "items" in resp_data:
@@ -69,8 +65,16 @@ def save_sent_ids(ids_set):
         json.dump(list(ids_set), f)
 
 def main():
-    sent_ids = load_sent_ids()
+    # Проверка связи с Telegram
     bot = Bot(token=TELEGRAM_TOKEN)
+    try:
+        bot.send_message(chat_id=CHAT_ID, text="✅ Тестовое сообщение. Бот работает!")
+        logger.info("Тестовое сообщение отправлено успешно")
+    except Exception as e:
+        logger.error("Ошибка отправки тестового сообщения: %s", e)
+        return
+
+    sent_ids = load_sent_ids()
     items = search_yad2()
     new_found = 0
 
