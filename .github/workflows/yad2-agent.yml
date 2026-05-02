@@ -2,8 +2,8 @@ name: Yad2 Real Estate Agent
 
 on:
   schedule:
-    - cron: '0 * * * *' # Запуск в начале каждого часа
-  workflow_dispatch: # Возможность ручного запуска
+    - cron: '0 * * * *'   # каждый час
+  workflow_dispatch:
 
 jobs:
   run_scraper:
@@ -20,19 +20,24 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore sent_ids cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: sent_ids.json
+          key: sent-ids-${{ github.run_id }}
+          restore-keys: |
+            sent-ids-
+
       - name: Run Yad2 Agent
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python bot.py
 
-      - name: Commit updated sent_ids (если есть изменения)
-        run: |
-          if [ -f sent_ids.json ]; then
-            git config user.name "GitHub Actions"
-            git config user.email "actions@github.com"
-            git add sent_ids.json
-            git diff --staged --quiet || (git commit -m "Update sent_ids" && git push)
-          else
-            echo "Файл sent_ids.json отсутствует, коммит не требуется"
-          fi
+      - name: Save sent_ids cache
+        if: success()
+        uses: actions/cache@v4
+        with:
+          path: sent_ids.json
+          key: sent-ids-${{ github.run_id }}
