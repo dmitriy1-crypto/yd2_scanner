@@ -2,7 +2,7 @@ import os
 import json
 import time
 import logging
-import requests
+from yad2_scraper import Yad2Scraper
 from telegram import Bot
 from telegram.error import TelegramError
 
@@ -14,45 +14,47 @@ if not TELEGRAM_TOKEN or not CHAT_ID:
     raise ValueError("TELEGRAM_TOKEN и CHAT_ID должны быть заданы в переменных окружения!")
 
 # ---------- ФИЛЬТРЫ ПОИСКА ----------
-SEARCH_FILTERS = {
-    "area": "center",
-    "max_price": 2_000_000,
-    "min_rooms": 3,
-    "max_rooms": 4,
-    "property_type": "apartment",
-    "deal_type": "sale",
-}
+AREA = "center"
+MAX_PRICE = 2_000_000
+MIN_ROOMS = 3
+MAX_ROOMS = 4
+PROPERTY_TYPE = "apartment"
+DEAL_TYPE = "sale"
 
 SENT_IDS_FILE = "sent_ids.json"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def search_yad2():
-    """Поиск объявлений через публичный GET API Yad2."""
-    base_url = f"https://www.yad2.co.il/api/pre-load/getFeedIndex/realestate/{SEARCH_FILTERS['deal_type']}"
+    """Поиск объявлений через библиотеку yad2-scraper (метод get)."""
+    scraper = Yad2Scraper()
+    base_url = f"https://www.yad2.co.il/api/pre-load/getFeedIndex/realestate/{DEAL_TYPE}"
     params = {
-        "area": SEARCH_FILTERS["area"],
-        "propertyType": SEARCH_FILTERS["property_type"],
-        "priceTo": SEARCH_FILTERS["max_price"],
-        "roomsFrom": SEARCH_FILTERS["min_rooms"],
-        "roomsTo": SEARCH_FILTERS["max_rooms"],
+        "area": AREA,
+        "propertyType": PROPERTY_TYPE,
+        "priceTo": MAX_PRICE,
+        "roomsFrom": MIN_ROOMS,
+        "roomsTo": MAX_ROOMS,
         "pageSize": 25,
         "page": 0,
         "sort": "date_desc",
     }
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
     }
     try:
-        resp = requests.get(base_url, params=params, headers=headers, timeout=15)
-        resp.raise_for_status()
-        data = resp.json()
-        items = data.get("items") or data if isinstance(data, list) else []
-        logger.info(f"Найдено {len(items)} объявлений")
-        return items
+        # Используем метод get библиотеки (он добавляет случайный User-Agent и обрабатывает ответ)
+        resp_data = scraper.get(base_url, params=params, headers=headers)
+        if isinstance(resp_data, list):
+            return resp_data
+        elif isinstance(resp_data, dict) and "items" in resp_data:
+            return resp_data["items"]
+        else:
+            logger.warning("Неожиданная структура ответа: %s", str(resp_data)[:200])
+            return []
     except Exception as e:
-        logger.error(f"Ошибка при запросе к Yad2: {e}")
+        logger.error("Ошибка при запросе к Yad2: %s", e)
         return []
 
 def load_sent_ids():
@@ -101,10 +103,10 @@ def main():
             new_found += 1
             time.sleep(1)
         except TelegramError as e:
-            logger.error(f"Не удалось отправить {listing_id}: {e}")
+            logger.error("Не удалось отправить %s: %s", listing_id, e)
 
     save_sent_ids(sent_ids)
-    logger.info(f"Отправлено {new_found} новых объявлений")
+    logger.info("Отправлено %d новых объявлений", new_found)
 
 if __name__ == "__main__":
     main()
