@@ -29,11 +29,12 @@ jobs:
           restore-keys: |
             sent-ids-
 
-      - name: Run Yad2 Agent
-        env:
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: python bot.py
+      - name: Diagnostic - show Yad2Scraper methods
+  env:
+    TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+    CHAT_ID: ${{ secrets.CHAT_ID }}
+  run: |
+    python -c "from yad2_scraper import Yad2Scraper; print('Methods:', [m for m in dir(Yad2Scraper) if not m.startswith('_')])"
 
       - name: Save sent_ids cache
         if: success()
