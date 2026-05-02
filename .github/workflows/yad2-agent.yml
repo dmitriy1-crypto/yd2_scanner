@@ -2,8 +2,8 @@ name: Yad2 Real Estate Agent
 
 on:
   schedule:
-    - cron: '0 * * * *'   # каждый час
-  workflow_dispatch:
+    - cron: '0 * * * *'   # каждый час (пока можно оставить)
+  workflow_dispatch:       # возможность ручного запуска
 
 jobs:
   run_scraper:
@@ -20,6 +20,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Diagnostic - show Yad2Scraper methods
+        run: |
+          python -c "from yad2_scraper import Yad2Scraper; print('Methods:', [m for m in dir(Yad2Scraper) if not m.startswith('_')])"
+
       - name: Restore sent_ids cache
         id: cache
         uses: actions/cache@v4
@@ -29,15 +33,8 @@ jobs:
           restore-keys: |
             sent-ids-
 
-      - name: Diagnostic - show Yad2Scraper methods
-  env:
-    TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-    CHAT_ID: ${{ secrets.CHAT_ID }}
-  run: |
-    python -c "from yad2_scraper import Yad2Scraper; print('Methods:', [m for m in dir(Yad2Scraper) if not m.startswith('_')])"
-
       - name: Save sent_ids cache
-        if: success()
+        if: success()  # сохраняем только при успешном выполнении
         uses: actions/cache@v4
         with:
           path: sent_ids.json
