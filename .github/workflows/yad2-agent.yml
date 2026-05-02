@@ -26,9 +26,13 @@ jobs:
           CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python bot.py
 
-      - name: Commit updated sent_ids
+      - name: Commit updated sent_ids (если есть изменения)
         run: |
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          git add sent_ids.json
-          git diff --staged --quiet || (git commit -m "Update sent_ids" && git push)
+          if [ -f sent_ids.json ]; then
+            git config user.name "GitHub Actions"
+            git config user.email "actions@github.com"
+            git add sent_ids.json
+            git diff --staged --quiet || (git commit -m "Update sent_ids" && git push)
+          else
+            echo "Файл sent_ids.json отсутствует, коммит не требуется"
+          fi
