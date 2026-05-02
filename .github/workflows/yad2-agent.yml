@@ -1,7 +1,7 @@
 name: Yad2 Real Estate Agent (diagnostic)
 
 on:
-  workflow_dispatch:   # только ручной запуск, чтобы не мешать основному агенту
+  workflow_dispatch:
 
 jobs:
   run_scraper:
