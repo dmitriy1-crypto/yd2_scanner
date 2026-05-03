@@ -1,9 +1,17 @@
 import os
 import json
+import time
 import logging
 import requests
 
-# ---------- НАСТРОЙКИ ----------
+# ---------- НАСТРОЙКИ (берутся из переменных окружения GitHub Actions) ----------
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
+CHAT_ID = os.environ.get("CHAT_ID", "").strip()
+
+if not TELEGRAM_TOKEN or not CHAT_ID:
+    raise ValueError("TELEGRAM_TOKEN и CHAT_ID должны быть заданы в Secrets!")
+
+# ---------- ФИЛЬТРЫ ПОИСКА ----------
 AREA = "center"
 MAX_PRICE = 2_000_000
 MIN_ROOMS = 3
@@ -11,11 +19,34 @@ MAX_ROOMS = 4
 PROPERTY_TYPE = "apartment"
 DEAL_TYPE = "sale"
 
+SENT_IDS_FILE = "sent_ids.json"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-def search_yad2():
-    """Прямой GET-запрос к API Yad2, разбор ответа."""
+# ---------- ОТПРАВКА В TELEGRAM (прямые HTTP-запросы) ----------
+def tg_send_message(text, parse_mode=None):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    try:
+        resp = requests.post(url, json=payload, timeout=10)
+        resp.raise_for_status()
+        logger.info("Сообщение отправлено: %s", text[:100])
+    except Exception as e:
+        logger.error("Ошибка отправки в Telegram: %s", e)
+
+def tg_send_photo(photo_url):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
+    payload = {"chat_id": CHAT_ID, "photo": photo_url}
+    try:
+        requests.post(url, json=payload, timeout=10)
+    except Exception as e:
+        logger.error("Ошибка отправки фото: %s", e)
+
+# ---------- ПОЛУЧЕНИЕ ОБЪЯВЛЕНИЙ С YAD2 ----------
+def fetch_yad2_listings():
+    """Запрос к API Yad2 и извлечение списка объявлений."""
     url = f"https://www.yad2.co.il/api/pre-load/getFeedIndex/realestate/{DEAL_TYPE}"
     params = {
         "area": AREA,
@@ -37,8 +68,8 @@ def search_yad2():
         resp = requests.get(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
-        logger.info("✅ Yad2 ответ получен. Ключи верхнего уровня: %s", list(data.keys()))
-        
+
+        # Пробуем все известные поля, где могут лежать объявления
         items = data.get("items") or data.get("data") or []
         if isinstance(data, list):
             items = data
@@ -46,20 +77,77 @@ def search_yad2():
             items = data["yad1Listing"]
         if not items and "yad1Ads" in data:
             items = data["yad1Ads"]
-        
-        logger.info("Найдено объявлений: %d", len(items) if isinstance(items, list) else 0)
-        if items and isinstance(items, list) and len(items) > 0:
-            # Показываем первое объявление полностью
-            logger.info("Пример первого объявления (полный): %s", json.dumps(items[0], ensure_ascii=False))
+
+        logger.info("Получено %d объявлений", len(items) if isinstance(items, list) else 0)
         return items if isinstance(items, list) else []
     except Exception as e:
-        logger.error("Ошибка запроса к Yad2: %s", e)
+        logger.error("Ошибка при запросе к Yad2: %s", e)
         return []
 
+# ---------- РАБОТА С КЕШЕМ ОТПРАВЛЕННЫХ ID ----------
+def load_sent_ids():
+    try:
+        with open(SENT_IDS_FILE, "r") as f:
+            return set(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+def save_sent_ids(ids_set):
+    with open(SENT_IDS_FILE, "w") as f:
+        json.dump(list(ids_set), f)
+
+# ---------- ФОРМИРОВАНИЕ СООБЩЕНИЯ ----------
+def build_message(listing):
+    """Формирует текст объявления для Telegram."""
+    # Используем понятные ключи из ответа API
+    title = listing.get("projectName") or listing.get("HomeTypeText") or "Без названия"
+    price = listing.get("Price", "—")
+    rooms = listing.get("Rooms", "—")
+    address = listing.get("DisplayAddress") or listing.get("CityNeighborhood", "")
+    # Уникальный ID (лучше использовать listing_product_id)
+    listing_id = str(listing.get("listing_product_id") or listing.get("OrderID", ""))
+    # Ссылка на объявление (можно сформировать, зная ID)
+    url = f"https://www.yad2.co.il/realestate/item/{listing_id}" if listing_id else ""
+    image = None
+    if "images" in listing and listing["images"]:
+        image = listing["images"][0]
+
+    message = f"🏠 *{title}*\n"
+    message += f"💰 Цена: {price} ₪\n"
+    message += f"🚪 Комнат: {rooms}\n"
+    if address:
+        message += f"📍 {address}\n"
+    if url:
+        message += f"[Открыть объявление]({url})"
+
+    return message, image, listing_id
+
+# ---------- ГЛАВНАЯ ФУНКЦИЯ ----------
 def main():
-    logger.info("Запуск диагностического поиска Yad2...")
-    items = search_yad2()
-    logger.info("Всего объявлений получено: %d", len(items))
+    # Тестовое сообщение (можно закомментировать после отладки)
+    tg_send_message("✅ Запуск агента Yad2. Начинаю поиск...")
+    
+    sent_ids = load_sent_ids()
+    items = fetch_yad2_listings()
+    new_found = 0
+
+    for item in items:
+        msg, image, listing_id = build_message(item)
+        if not listing_id or listing_id in sent_ids:
+            continue
+
+        tg_send_message(msg, parse_mode="Markdown")
+        if image:
+            tg_send_photo(image)
+        sent_ids.add(listing_id)
+        new_found += 1
+        time.sleep(1.5)  # Небольшая задержка, чтобы не упереться в лимиты Telegram
+
+    if new_found:
+        save_sent_ids(sent_ids)
+        logger.info("Отправлено %d новых объявлений", new_found)
+    else:
+        logger.info("Новых объявлений нет")
 
 if __name__ == "__main__":
     main()
