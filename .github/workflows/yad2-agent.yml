@@ -1,7 +1,9 @@
-name: Yad2 Diagnostic
+name: Yad2 Real Estate Agent
 
 on:
-  workflow_dispatch:   # только ручной запуск
+  schedule:
+    - cron: '0 * * * *'   # каждый час в начале часа
+  workflow_dispatch:       # возможность ручного запуска
 
 jobs:
   run_scraper:
@@ -18,5 +20,24 @@ jobs:
       - name: Install dependencies
         run: pip install requests
 
-      - name: Run diagnostic bot
+      - name: Restore sent_ids cache
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: sent_ids.json
+          key: sent-ids-${{ github.run_id }}
+          restore-keys: |
+            sent-ids-
+
+      - name: Run Yad2 Agent
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
         run: python bot.py
+
+      - name: Save sent_ids cache
+        if: success()
+        uses: actions/cache@v4
+        with:
+          path: sent_ids.json
+          key: sent-ids-${{ github.run_id }}
