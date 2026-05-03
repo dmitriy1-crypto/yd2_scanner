@@ -4,7 +4,6 @@ import logging
 import requests
 
 # ---------- НАСТРОЙКИ ----------
-# В диагностическом режиме токен и chat_id не используются
 AREA = "center"
 MAX_PRICE = 2_000_000
 MIN_ROOMS = 3
@@ -50,7 +49,8 @@ def search_yad2():
         
         logger.info("Найдено объявлений: %d", len(items) if isinstance(items, list) else 0)
         if items and isinstance(items, list) and len(items) > 0:
-            logger.info("Пример первого объявления: %s", json.dumps(items[0], ensure_ascii=False)[:500])
+            # Показываем первое объявление полностью
+            logger.info("Пример первого объявления (полный): %s", json.dumps(items[0], ensure_ascii=False))
         return items if isinstance(items, list) else []
     except Exception as e:
         logger.error("Ошибка запроса к Yad2: %s", e)
