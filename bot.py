@@ -12,12 +12,18 @@ if not TELEGRAM_TOKEN or not CHAT_ID:
     raise ValueError("TELEGRAM_TOKEN и CHAT_ID должны быть заданы в Secrets!")
 
 # ---------- ФИЛЬТРЫ ПОИСКА ----------
-AREA = 5                  # Хайфа и окрестности (вместо строки "haifa")
-MAX_PRICE = 1_200_000
-MIN_ROOMS = 2
-MAX_ROOMS = 4            # чтобы охватить квартиры 100+ кв. м
-PROPERTY_TYPE = "apartment"
+AREA = 5                       # Хайфа и окрестности
+MIN_PRICE = 320000             # новый параметр
+MAX_PRICE = 1_510_000          # обновили
+MIN_ROOMS = 1                  # мин. комнат (по умолчанию)
+MAX_ROOMS = 4                  # макс. комнат
+PROPERTY_TYPE = "1,3,49,11,4"  # список типов через запятую, как в URL
 DEAL_TYPE = "sale"
+IMAGE_ONLY = 1
+PRICE_ONLY = 1
+# Площадь пока не работает через API, но оставим как заглушку
+MIN_SQM = 40
+MAX_SQM = 120
 
 SENT_IDS_FILE = "sent_ids.json"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -49,15 +55,20 @@ def fetch_yad2_listings():
     """Запрос к API Yad2 и извлечение списка объявлений."""
     url = f"https://www.yad2.co.il/api/pre-load/getFeedIndex/realestate/{DEAL_TYPE}"
     params = {
-        "area": AREA,
-        "propertyType": PROPERTY_TYPE,
-        "priceTo": MAX_PRICE,
-        "roomsFrom": MIN_ROOMS,
-        "roomsTo": MAX_ROOMS,
-        "pageSize": 25,
-        "page": 0,
-        "sort": "date_desc",
-    }
+    "area": AREA,
+    "priceFrom": MIN_PRICE,        # для сайта minPrice, для API priceFrom
+    "priceTo": MAX_PRICE,
+    "roomsFrom": MIN_ROOMS,
+    "roomsTo": MAX_ROOMS,
+    "property": PROPERTY_TYPE,    # типы недвижимости через запятую
+    "imageOnly": IMAGE_ONLY,
+    "priceOnly": PRICE_ONLY,
+    "pageSize": 25,
+    "page": 0,
+    "sort": "date_desc",
+    # "minSqm": MIN_SQM,          # не поддерживается, раскомментировать, если появится
+    # "maxSqm": MAX_SQM,
+}
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
