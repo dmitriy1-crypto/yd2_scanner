@@ -131,7 +131,7 @@ def build_message(listing):
     return message, image, listing_id
 
 def main():
-    tg_send_message("✅ Запуск агента Yad2. Начинаю поиск...")
+    tg_send_message("Запуск агента Yad2. Начинаю поиск..")
     
     sent_ids = load_sent_ids()
     items = fetch_yad2_listings()
