@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import logging
 import requests
@@ -19,6 +20,7 @@ DEAL_TYPE = "sale"
 IMAGE_ONLY = 1
 PRICE_ONLY = 1
 
+SENT_IDS_FILE = "sent_ids.json"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -67,21 +69,34 @@ def fetch_yad2_listings():
         logger.error("Ошибка при запросе к Yad2: %s", e)
         return []
 
+def load_sent_ids():
+    try:
+        with open(SENT_IDS_FILE, "r") as f:
+            return set(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+def save_sent_ids(ids_set):
+    with open(SENT_IDS_FILE, "w") as f:
+        json.dump(list(ids_set), f)
+
 def build_message(listing):
-    title = listing.get("projectName") or listing.get("HomeTypeText") or listing.get("title") or "Без названия"
-    price = listing.get("Price", "—")
+    # Пропускаем новостройки (проекты застройщиков)
+    if listing.get("project_section") == "sales":
+        return None
+
+    title = listing.get("title") or listing.get("projectName") or listing.get("HomeTypeText") or "Без названия"
+    price = listing.get("Price")
+    # Пропускаем объявления без цены или с ценой 0
+    if price is None or price == 0:
+        return None
+
     rooms = listing.get("Rooms", "—")
     address = listing.get("DisplayAddress") or listing.get("CityNeighborhood", "")
-    listing_id = str(listing.get("listing_product_id") or listing.get("OrderID") or listing.get("id", ""))
-    
-    # Правильная ссылка
-    url = listing.get("url") or listing.get("itemUrl") or ""
-    if not url and listing_id:
-        if "projectID" in listing:
-            project_id = listing.get("projectID", "")
-            url = f"https://www.yad2.co.il/realestate/project/{project_id}" if project_id else ""
-        else:
-            url = f"https://www.yad2.co.il/realestate/item/{listing_id}"
+    listing_id = str(listing.get("listing_product_id") or listing.get("id", ""))
+
+    # Формируем корректную ссылку для обычного объявления
+    url = f"https://www.yad2.co.il/realestate/item/{listing_id}" if listing_id else ""
 
     message = f"{title}\n"
     message += f"Цена: {price} ₪\n"
@@ -94,20 +109,31 @@ def build_message(listing):
     return message
 
 def main():
-    tg_send_message("Запуск агента Yad2. Начинаю поиск...")
+    tg_send_message("Запуск агента Yad2. Начинаю поиск..!")
     items = fetch_yad2_listings()
     if not items:
         tg_send_message("Объявлений не найдено.")
         return
 
-    sent = 0
+    sent_ids = load_sent_ids()
+    new_sent = 0
+
     for item in items:
         msg = build_message(item)
+        if not msg:
+            continue
+
+        listing_id = str(item.get("listing_product_id") or item.get("id", ""))
+        if listing_id in sent_ids:
+            continue
+
         tg_send_message(msg)
-        sent += 1
+        sent_ids.add(listing_id)
+        new_sent += 1
         time.sleep(1.5)
 
-    logger.info("Отправлено %d объявлений", sent)
+    save_sent_ids(sent_ids)
+    logger.info("Отправлено %d новых объявлений", new_sent)
 
 if __name__ == "__main__":
     main()
