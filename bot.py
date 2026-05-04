@@ -4,7 +4,7 @@ import time
 import logging
 import requests
 
-# ---------- НАСТРОЙКИ (берутся из переменных окружения GitHub Actions) ----------
+# ---------- НАСТРОЙКИ ----------
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "").strip()
 CHAT_ID = os.environ.get("CHAT_ID", "").strip()
 
@@ -12,24 +12,19 @@ if not TELEGRAM_TOKEN or not CHAT_ID:
     raise ValueError("TELEGRAM_TOKEN и CHAT_ID должны быть заданы в Secrets!")
 
 # ---------- ФИЛЬТРЫ ПОИСКА ----------
-AREA = 5                       # Хайфа и окрестности
-MIN_PRICE = 320000             # новый параметр
-MAX_PRICE = 1_510_000          # обновили
-MIN_ROOMS = 1                  # мин. комнат (по умолчанию)
-MAX_ROOMS = 4                  # макс. комнат
-PROPERTY_TYPE = "1,3,49,11,4"  # список типов через запятую, как в URL
+AREA = 5
+MAX_PRICE = 1_510_000
+MIN_ROOMS = 1
+MAX_ROOMS = 4
+PROPERTY_TYPE = "1,3,49,11,4"
 DEAL_TYPE = "sale"
 IMAGE_ONLY = 1
 PRICE_ONLY = 1
-# Площадь пока не работает через API, но оставим как заглушку
-MIN_SQM = 40
-MAX_SQM = 120
 
 SENT_IDS_FILE = "sent_ids.json"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# ---------- ОТПРАВКА В TELEGRAM (прямые HTTP-запросы) ----------
 def tg_send_message(text, parse_mode=None):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": CHAT_ID, "text": text, "disable_web_page_preview": True}
@@ -50,25 +45,20 @@ def tg_send_photo(photo_url):
     except Exception as e:
         logger.error("Ошибка отправки фото: %s", e)
 
-# ---------- ПОЛУЧЕНИЕ ОБЪЯВЛЕНИЙ С YAD2 ----------
 def fetch_yad2_listings():
-    """Запрос к API Yad2 и извлечение списка объявлений."""
     url = f"https://www.yad2.co.il/api/pre-load/getFeedIndex/realestate/{DEAL_TYPE}"
     params = {
-    "area": AREA,
-    "priceFrom": MIN_PRICE,        # для сайта minPrice, для API priceFrom
-    "priceTo": MAX_PRICE,
-    "roomsFrom": MIN_ROOMS,
-    "roomsTo": MAX_ROOMS,
-    "property": PROPERTY_TYPE,    # типы недвижимости через запятую
-    "imageOnly": IMAGE_ONLY,
-    "priceOnly": PRICE_ONLY,
-    "pageSize": 25,
-    "page": 0,
-    "sort": "date_desc",
-    # "minSqm": MIN_SQM,          # не поддерживается, раскомментировать, если появится
-    # "maxSqm": MAX_SQM,
-}
+        "area": AREA,
+        "property": PROPERTY_TYPE,
+        "priceTo": MAX_PRICE,
+        "roomsFrom": MIN_ROOMS,
+        "roomsTo": MAX_ROOMS,
+        "pageSize": 25,
+        "page": 0,
+        "sort": "date_desc",
+        "imageOnly": IMAGE_ONLY,
+        "priceOnly": PRICE_ONLY,
+    }
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
@@ -80,7 +70,6 @@ def fetch_yad2_listings():
         resp.raise_for_status()
         data = resp.json()
 
-        # Пробуем все известные поля, где могут лежать объявления
         items = data.get("items") or data.get("data") or []
         if isinstance(data, list):
             items = data
@@ -95,7 +84,6 @@ def fetch_yad2_listings():
         logger.error("Ошибка при запросе к Yad2: %s", e)
         return []
 
-# ---------- РАБОТА С КЕШЕМ ОТПРАВЛЕННЫХ ID ----------
 def load_sent_ids():
     try:
         with open(SENT_IDS_FILE, "r") as f:
@@ -107,18 +95,27 @@ def save_sent_ids(ids_set):
     with open(SENT_IDS_FILE, "w") as f:
         json.dump(list(ids_set), f)
 
-# ---------- ФОРМИРОВАНИЕ СООБЩЕНИЯ ----------
 def build_message(listing):
-    """Формирует текст объявления для Telegram."""
-    # Используем понятные ключи из ответа API
-    title = listing.get("projectName") or listing.get("HomeTypeText") or "Без названия"
+    """Формирует текст объявления для Telegram с правильной ссылкой."""
+    title = listing.get("projectName") or listing.get("HomeTypeText") or listing.get("title") or "Без названия"
     price = listing.get("Price", "—")
     rooms = listing.get("Rooms", "—")
     address = listing.get("DisplayAddress") or listing.get("CityNeighborhood", "")
-    # Уникальный ID (лучше использовать listing_product_id)
-    listing_id = str(listing.get("listing_product_id") or listing.get("OrderID", ""))
-    # Ссылка на объявление (можно сформировать, зная ID)
-    url = f"https://www.yad2.co.il/realestate/item/{listing_id}" if listing_id else ""
+
+    # Уникальный ID и правильная ссылка
+    listing_id = str(listing.get("listing_product_id") or listing.get("OrderID") or listing.get("id", ""))
+    url = ""
+    if listing_id:
+        # Пробуем сначала прямую ссылку из данных
+        url = listing.get("url") or listing.get("itemUrl") or ""
+        if not url:
+            # Генерируем ссылку по типу объявления
+            if "projectID" in listing:  # это проект застройщика
+                project_id = listing.get("projectID", "")
+                url = f"https://www.yad2.co.il/realestate/project/{project_id}" if project_id else ""
+            else:  # обычное объявление
+                url = f"https://www.yad2.co.il/realestate/item/{listing_id}"
+
     image = None
     if "images" in listing and listing["images"]:
         image = listing["images"][0]
@@ -133,9 +130,7 @@ def build_message(listing):
 
     return message, image, listing_id
 
-# ---------- ГЛАВНАЯ ФУНКЦИЯ ----------
 def main():
-    # Тестовое сообщение (можно закомментировать после отладки)
     tg_send_message("✅ Запуск агента Yad2. Начинаю поиск...")
     
     sent_ids = load_sent_ids()
@@ -143,8 +138,12 @@ def main():
     new_found = 0
 
     for item in items:
+        # Временно не фильтруем новостройки, чтобы показать все объявления
         msg, image, listing_id = build_message(item)
         if not listing_id or listing_id in sent_ids:
+            continue
+        # Проверяем, что ссылка не пустая
+        if "[Открыть объявление]()" in msg:
             continue
 
         tg_send_message(msg, parse_mode="Markdown")
@@ -152,7 +151,7 @@ def main():
             tg_send_photo(image)
         sent_ids.add(listing_id)
         new_found += 1
-        time.sleep(1.5)  # Небольшая задержка, чтобы не упереться в лимиты Telegram
+        time.sleep(1.5)
 
     if new_found:
         save_sent_ids(sent_ids)
