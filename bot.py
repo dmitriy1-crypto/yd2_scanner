@@ -12,10 +12,10 @@ if not TELEGRAM_TOKEN or not CHAT_ID:
     raise ValueError("TELEGRAM_TOKEN и CHAT_ID должны быть заданы в Secrets!")
 
 # ---------- ФИЛЬТРЫ ПОИСКА ----------
-AREA = "center"
-MAX_PRICE = 2_000_000
-MIN_ROOMS = 3
-MAX_ROOMS = 4
+AREA = 5                  # Хайфа и окрестности (вместо строки "haifa")
+MAX_PRICE = 1_200_000
+MIN_ROOMS = 2
+MAX_ROOMS = 4            # чтобы охватить квартиры 100+ кв. м
 PROPERTY_TYPE = "apartment"
 DEAL_TYPE = "sale"
 
